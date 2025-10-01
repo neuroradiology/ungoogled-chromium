@@ -16,25 +16,22 @@ def main():
     """CLI entrypoint"""
     parser = argparse.ArgumentParser(description='Run Pylint over utils')
     parser.add_argument('--hide-fixme', action='store_true', help='Hide "fixme" Pylint warnings.')
-    parser.add_argument(
-        '--show-locally-disabled',
-        action='store_true',
-        help='Show "locally-disabled" Pylint warnings.')
+    parser.add_argument('--show-locally-disabled',
+                        action='store_true',
+                        help='Show "locally-disabled" Pylint warnings.')
     args = parser.parse_args()
 
-    disable = ['bad-continuation']
-
-    if args.hide_fixme:
-        disable.append('fixme')
-    if not args.show_locally_disabled:
-        disable.append('locally-disabled')
-
     pylint_options = [
-        '--disable={}'.format(','.join(disable)),
         '--jobs=4',
+        '--max-args=7',
         '--score=n',
         '--persistent=n',
     ]
+
+    if args.hide_fixme:
+        pylint_options.append('--disable=fixme')
+    if not args.show_locally_disabled:
+        pylint_options.append('--disable=locally-disabled')
 
     ignore_prefixes = [
         ('third_party', ),
@@ -42,6 +39,7 @@ def main():
     ]
 
     sys.path.insert(1, str(Path(__file__).resolve().parent.parent / 'utils' / 'third_party'))
+    sys.path.append(Path(__file__).resolve().parent.parent / 'utils')
     with ChangeDir(Path(__file__).resolve().parent.parent / 'utils'):
         result = run_pylint(
             Path(),
@@ -50,8 +48,8 @@ def main():
         )
     sys.path.pop(1)
     if not result:
-        exit(1)
-    exit(0)
+        sys.exit(1)
+    sys.exit(0)
 
 
 if __name__ == '__main__':

@@ -8,6 +8,7 @@
 import argparse
 import os
 import shutil
+import sys
 from pathlib import Path
 
 from pylint import lint
@@ -31,15 +32,15 @@ class ChangeDir:
 
 def run_pylint(module_path, pylint_options, ignore_prefixes=tuple()):
     """Runs Pylint. Returns a boolean indicating success"""
-    pylint_stats = Path('/run/user/{}/pylint_stats'.format(os.getuid()))
+    pylint_stats = Path(f'/run/user/{os.getuid()}/pylint_stats')
     if not pylint_stats.parent.is_dir(): #pylint: disable=no-member
         pylint_stats = Path('/run/shm/pylint_stats')
     os.environ['PYLINTHOME'] = str(pylint_stats)
 
-    input_paths = list()
+    input_paths = []
     if not module_path.exists():
         print('ERROR: Cannot find', module_path)
-        exit(1)
+        sys.exit(1)
     if module_path.is_dir():
         for path in module_path.rglob('*.py'):
             ignore_matched = False
@@ -68,20 +69,18 @@ def main():
 
     parser = argparse.ArgumentParser(description='Run Pylint over arbitrary module')
     parser.add_argument('--hide-fixme', action='store_true', help='Hide "fixme" Pylint warnings.')
-    parser.add_argument(
-        '--show-locally-disabled',
-        action='store_true',
-        help='Show "locally-disabled" Pylint warnings.')
+    parser.add_argument('--show-locally-disabled',
+                        action='store_true',
+                        help='Show "locally-disabled" Pylint warnings.')
     parser.add_argument('module_path', type=Path, help='Path to the module to check')
     args = parser.parse_args()
 
     if not args.module_path.exists():
-        print('ERROR: Module path "{}" does not exist'.format(args.module_path))
-        exit(1)
+        print(f'ERROR: Module path "{args.module_path}" does not exist')
+        sys.exit(1)
 
     disables = [
         'wrong-import-position',
-        'bad-continuation',
     ]
 
     if args.hide_fixme:
@@ -90,15 +89,15 @@ def main():
         disables.append('locally-disabled')
 
     pylint_options = [
-        '--disable={}'.format(','.join(disables)),
+        f"--disable={','.join(disables)}",
         '--jobs=4',
         '--score=n',
         '--persistent=n',
     ]
 
     if not run_pylint(args.module_path, pylint_options):
-        exit(1)
-    exit(0)
+        sys.exit(1)
+    sys.exit(0)
 
 
 if __name__ == '__main__':

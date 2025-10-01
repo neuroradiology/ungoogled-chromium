@@ -13,17 +13,19 @@ import configparser
 import enum
 import hashlib
 import shutil
+import ssl
 import subprocess
 import sys
 import urllib.request
 from pathlib import Path
 
-from _common import ENCODING, USE_REGISTRY, ExtractorEnum, get_logger, \
-    get_chromium_version, add_common_params
+from _common import ENCODING, USE_REGISTRY, ExtractorEnum, PlatformEnum, \
+    get_logger, get_chromium_version, get_running_platform, add_common_params
 from _extraction import extract_tar_file, extract_with_7z, extract_with_winrar
 
 sys.path.insert(0, str(Path(__file__).parent / 'third_party'))
-import schema #pylint: disable=wrong-import-position
+import schema #pylint: disable=wrong-import-position, wrong-import-order
+
 sys.path.pop(0)
 
 # Constants
@@ -31,7 +33,7 @@ sys.path.pop(0)
 
 class HashesURLEnum(str, enum.Enum):
     """Enum for supported hash URL schemes"""
-    chromium = 'chromium'
+    CHROMIUM = 'chromium'
 
 
 class HashMismatchError(BaseException):
@@ -73,6 +75,7 @@ class DownloadInfo: #pylint: disable=too-few-public-methods
     })
 
     class _DownloadsProperties: #pylint: disable=too-few-public-methods
+
         def __init__(self, section_dict, passthrough_properties, hashes):
             self._section_dict = section_dict
             self._passthrough_properties = passthrough_properties
@@ -88,7 +91,7 @@ class DownloadInfo: #pylint: disable=too-few-public-methods
             if name in self._passthrough_properties:
                 return self._section_dict.get(name, fallback=None)
             if name == 'hashes':
-                hashes_dict = dict()
+                hashes_dict = {}
                 for hash_name in (*self._hashes, 'hash_url'):
                     value = self._section_dict.get(hash_name, fallback=None)
                     if value:
@@ -96,7 +99,7 @@ class DownloadInfo: #pylint: disable=too-few-public-methods
                             value = value.split(DownloadInfo.hash_url_delimiter)
                         hashes_dict[hash_name] = value
                 return hashes_dict
-            raise AttributeError('"{}" has no attribute "{}"'.format(type(self).__name__, name))
+            raise AttributeError(f'"{type(self).__name__}" has no attribute "{name}"')
 
     def _parse_data(self, path):
         """
@@ -148,8 +151,16 @@ class DownloadInfo: #pylint: disable=too-few-public-methods
 
     def properties_iter(self):
         """Iterator for the download properties sorted by output path"""
-        return sorted(
-            map(lambda x: (x, self[x]), self), key=(lambda x: str(Path(x[1].output_path))))
+        return sorted(map(lambda x: (x, self[x]), self),
+                      key=(lambda x: str(Path(x[1].output_path))))
+
+    def check_sections_exist(self, section_names):
+        """..."""
+        if not section_names:
+            return
+        for name in section_names:
+            if name not in self:
+                raise KeyError(f'"{type(self).__name__}" has no section "{name}"')
 
 
 class _UrlRetrieveReportHook: #pylint: disable=too-few-public-methods
@@ -174,10 +185,10 @@ class _UrlRetrieveReportHook: #pylint: disable=too-few-public-methods
                 return
             self._last_percentage = percentage
             print('\r' + ' ' * self._max_len_printed, end='')
-            status_line = 'Progress: {:.1%} of {:,d} B'.format(percentage, total_size)
+            status_line = f'Progress: {percentage:.1%} of {total_size:,d} B'
         else:
             downloaded_estimate = block_count * block_size
-            status_line = 'Progress: {:,d} B of unknown size'.format(downloaded_estimate)
+            status_line = f'Progress: {downloaded_estimate:,d} B of unknown size'
         self._max_len_printed = len(status_line)
         print('\r' + status_line, end='')
 
@@ -187,7 +198,6 @@ def _download_via_urllib(url, file_path, show_progress, disable_ssl_verification
     if show_progress:
         reporthook = _UrlRetrieveReportHook()
     if disable_ssl_verification:
-        import ssl
         # TODO: Remove this or properly implement disabling SSL certificate verification
         orig_https_context = ssl._create_default_https_context #pylint: disable=protected-access
         ssl._create_default_https_context = ssl._create_unverified_context #pylint: disable=protected-access
@@ -223,7 +233,7 @@ def _download_if_needed(file_path, url, show_progress, disable_ssl_verification)
     if shutil.which('curl'):
         get_logger().debug('Using curl')
         try:
-            subprocess.run(['curl', '-L', '-o', str(tmp_file_path), '-C', '-', url], check=True)
+            subprocess.run(['curl', '-fL', '-o', str(tmp_file_path), '-C', '-', url], check=True)
         except subprocess.CalledProcessError as exc:
             get_logger().error('curl failed. Re-run the download command to resume downloading.')
             raise exc
@@ -253,17 +263,22 @@ def _get_hash_pairs(download_properties, cache_dir):
             if hash_processor == 'chromium':
                 yield from _chromium_hashes_generator(cache_dir / hash_filename)
             else:
-                raise ValueError('Unknown hash_url processor: %s' % hash_processor)
+                raise ValueError(f'Unknown hash_url processor: {hash_processor}')
         else:
             yield entry_type, entry_value
 
 
-def retrieve_downloads(download_info, cache_dir, show_progress, disable_ssl_verification=False):
+def retrieve_downloads(download_info,
+                       cache_dir,
+                       components,
+                       show_progress,
+                       disable_ssl_verification=False):
     """
     Retrieve downloads into the downloads cache.
 
     download_info is the DowloadInfo of downloads to retrieve.
     cache_dir is the pathlib.Path to the downloads cache.
+    components is a list of component names to download, if not empty.
     show_progress is a boolean indicating if download progress is printed to the console.
     disable_ssl_verification is a boolean indicating if certificate verification
         should be disabled for downloads using HTTPS.
@@ -276,6 +291,8 @@ def retrieve_downloads(download_info, cache_dir, show_progress, disable_ssl_veri
     if not cache_dir.is_dir():
         raise NotADirectoryError(cache_dir)
     for download_name, download_properties in download_info.properties_iter():
+        if components and not download_name in components:
+            continue
         get_logger().info('Downloading "%s" to "%s" ...', download_name,
                           download_properties.download_filename)
         download_path = cache_dir / download_properties.download_filename
@@ -288,33 +305,44 @@ def retrieve_downloads(download_info, cache_dir, show_progress, disable_ssl_veri
                                 disable_ssl_verification)
 
 
-def check_downloads(download_info, cache_dir):
+def check_downloads(download_info, cache_dir, components, chunk_bytes=262144):
     """
     Check integrity of the downloads cache.
 
     download_info is the DownloadInfo of downloads to unpack.
     cache_dir is the pathlib.Path to the downloads cache.
+    chunk_bytes is the size for each chunk which need to read.
+    components is a list of component names to check, if not empty.
 
     Raises source_retrieval.HashMismatchError when the computed and expected hashes do not match.
     """
+    logger = get_logger()
     for download_name, download_properties in download_info.properties_iter():
+        if components and not download_name in components:
+            continue
         get_logger().info('Verifying hashes for "%s" ...', download_name)
+
         download_path = cache_dir / download_properties.download_filename
-        with download_path.open('rb') as file_obj:
-            archive_data = file_obj.read()
         for hash_name, hash_hex in _get_hash_pairs(download_properties, cache_dir):
-            get_logger().debug('Verifying %s hash...', hash_name)
-            hasher = hashlib.new(hash_name, data=archive_data)
+            logger.info('Verifying %s hash...', hash_name)
+            hasher = hashlib.new(hash_name)
+            with download_path.open('rb') as file_obj:
+                # Read file in chunks. Default is 262144 bytes.
+                chunk = file_obj.read(chunk_bytes)
+                while chunk:
+                    hasher.update(chunk)
+                    chunk = file_obj.read(chunk_bytes)
             if not hasher.hexdigest().lower() == hash_hex.lower():
                 raise HashMismatchError(download_path)
 
 
-def unpack_downloads(download_info, cache_dir, output_dir, extractors=None):
+def unpack_downloads(download_info, cache_dir, components, output_dir, extractors=None):
     """
     Unpack downloads in the downloads cache to output_dir. Assumes all downloads are retrieved.
 
     download_info is the DownloadInfo of downloads to unpack.
     cache_dir is the pathlib.Path directory containing the download cache
+    components is a list of component names to unpack, if not empty.
     output_dir is the pathlib.Path directory to unpack the downloads to.
     extractors is a dictionary of PlatformEnum to a command or path to the
         extractor binary. Defaults to 'tar' for tar, and '_use_registry' for 7-Zip and WinRAR.
@@ -322,6 +350,8 @@ def unpack_downloads(download_info, cache_dir, output_dir, extractors=None):
     May raise undetermined exceptions during archive unpacking.
     """
     for download_name, download_properties in download_info.properties_iter():
+        if components and not download_name in components:
+            continue
         download_path = cache_dir / download_properties.download_filename
         get_logger().info('Unpacking "%s" to %s ...', download_name,
                           download_properties.output_path)
@@ -340,11 +370,10 @@ def unpack_downloads(download_info, cache_dir, output_dir, extractors=None):
         else:
             strip_leading_dirs_path = Path(download_properties.strip_leading_dirs)
 
-        extractor_func(
-            archive_path=download_path,
-            output_dir=output_dir / Path(download_properties.output_path),
-            relative_to=strip_leading_dirs_path,
-            extractors=extractors)
+        extractor_func(archive_path=download_path,
+                       output_dir=output_dir / Path(download_properties.output_path),
+                       relative_to=strip_leading_dirs_path,
+                       extractors=extractors)
 
 
 def _add_common_args(parser):
@@ -354,27 +383,37 @@ def _add_common_args(parser):
         type=Path,
         nargs='+',
         help='The downloads INI to parse for downloads. Can be specified multiple times.')
-    parser.add_argument(
-        '-c', '--cache', type=Path, required=True, help='Path to the directory to cache downloads.')
+    parser.add_argument('-c',
+                        '--cache',
+                        type=Path,
+                        required=True,
+                        help='Path to the directory to cache downloads.')
 
 
 def _retrieve_callback(args):
-    retrieve_downloads(
-        DownloadInfo(args.ini), args.cache, args.show_progress, args.disable_ssl_verification)
+    info = DownloadInfo(args.ini)
+    info.check_sections_exist(args.components)
+    retrieve_downloads(info, args.cache, args.components, args.show_progress,
+                       args.disable_ssl_verification)
     try:
-        check_downloads(DownloadInfo(args.ini), args.cache)
+        check_downloads(info, args.cache, args.components)
     except HashMismatchError as exc:
         get_logger().error('File checksum does not match: %s', exc)
-        exit(1)
+        sys.exit(1)
 
 
 def _unpack_callback(args):
+    if args.skip_unused or args.sysroot:
+        get_logger().warning('The --skip-unused and --sysroot flags for downloads.py are'
+                             ' no longer functional and will be removed in the future.')
     extractors = {
         ExtractorEnum.SEVENZIP: args.sevenz_path,
         ExtractorEnum.WINRAR: args.winrar_path,
         ExtractorEnum.TAR: args.tar_path,
     }
-    unpack_downloads(DownloadInfo(args.ini), args.cache, args.output, extractors)
+    info = DownloadInfo(args.ini)
+    info.check_sections_exist(args.components)
+    unpack_downloads(info, args.cache, args.components, args.output, extractors)
 
 
 def main():
@@ -392,16 +431,22 @@ def main():
                      'If it is not present, Python\'s urllib will be used. However, only '
                      'the CLI-based downloaders can be resumed if the download is aborted.'))
     _add_common_args(retrieve_parser)
-    retrieve_parser.add_argument(
-        '--hide-progress-bar',
-        action='store_false',
-        dest='show_progress',
-        help='Hide the download progress.')
+    retrieve_parser.add_argument('--components',
+                                 nargs='+',
+                                 metavar='COMP',
+                                 help='Retrieve only these components. Default: all')
+    retrieve_parser.add_argument('--hide-progress-bar',
+                                 action='store_false',
+                                 dest='show_progress',
+                                 help='Hide the download progress.')
     retrieve_parser.add_argument(
         '--disable-ssl-verification',
         action='store_true',
         help='Disables certification verification for downloads using HTTPS.')
     retrieve_parser.set_defaults(callback=_retrieve_callback)
+
+    def _default_extractor_path(name):
+        return USE_REGISTRY if get_running_platform() == PlatformEnum.WINDOWS else name
 
     # unpack
     unpack_parser = subparsers.add_parser(
@@ -409,15 +454,18 @@ def main():
         help='Unpack download files',
         description='Verifies hashes of and unpacks download files into the specified directory.')
     _add_common_args(unpack_parser)
-    unpack_parser.add_argument(
-        '--tar-path',
-        default='tar',
-        help=('(Linux and macOS only) Command or path to the BSD or GNU tar '
-              'binary for extraction. Default: %(default)s'))
+    unpack_parser.add_argument('--components',
+                               nargs='+',
+                               metavar='COMP',
+                               help='Unpack only these components. Default: all')
+    unpack_parser.add_argument('--tar-path',
+                               default='tar',
+                               help=('(Linux and macOS only) Command or path to the BSD or GNU tar '
+                                     'binary for extraction. Default: %(default)s'))
     unpack_parser.add_argument(
         '--7z-path',
         dest='sevenz_path',
-        default=USE_REGISTRY,
+        default=_default_extractor_path('7z'),
         help=('Command or path to 7-Zip\'s "7z" binary. If "_use_registry" is '
               'specified, determine the path from the registry. Default: %(default)s'))
     unpack_parser.add_argument(
@@ -427,6 +475,8 @@ def main():
         help=('Command or path to WinRAR\'s "winrar" binary. If "_use_registry" is '
               'specified, determine the path from the registry. Default: %(default)s'))
     unpack_parser.add_argument('output', type=Path, help='The directory to unpack to.')
+    unpack_parser.add_argument('--skip-unused', action='store_true', help='Deprecated')
+    unpack_parser.add_argument('--sysroot', choices=('amd64', 'i386'), help='Deprecated')
     unpack_parser.set_defaults(callback=_unpack_callback)
 
     args = parser.parse_args()

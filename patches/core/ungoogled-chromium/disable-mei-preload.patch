@@ -7,19 +7,33 @@
 
 --- a/chrome/BUILD.gn
 +++ b/chrome/BUILD.gn
-@@ -291,7 +291,6 @@ if (!is_android && !is_mac) {
+@@ -367,7 +367,6 @@ if (!is_android && !is_mac) {
      }
  
      data_deps += [
 -      "//chrome/browser/resources/media/mei_preload:component",
+       "//components/webapps/isolated_web_apps/preload:component",
        "//third_party/widevine/cdm",
      ]
-   }
-@@ -1001,7 +1000,6 @@ if (is_win) {
-       ":keystone_registration_framework",
-       ":swiftshader_library",
+@@ -1181,7 +1180,6 @@ if (is_win) {
+       ":optimization_guide_library",
+       ":swiftshader_binaries",
        ":widevine_cdm_library",
 -      "//chrome/browser/resources/media/mei_preload:component_bundle",
+       "//components/webapps/isolated_web_apps/preload:component_bundle",
      ]
  
-     if (is_chrome_branded) {
+--- a/chrome/browser/resources/BUILD.gn
++++ b/chrome/browser/resources/BUILD.gn
+@@ -104,11 +104,6 @@ group("resources") {
+     ]
+   }
+ 
+-  if (is_mac) {
+-    public_deps += [
+-      "//chrome/browser/resources/media/mei_preload:component",
+-    ]
+-  }
+ 
+   if (is_win || is_mac || is_linux || is_chromeos || is_desktop_android) {
+     public_deps += [ "discards:resources" ]

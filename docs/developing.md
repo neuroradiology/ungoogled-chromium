@@ -2,7 +2,7 @@
 
 This document contains an assortment of information for those who want to develop ungoogled-chromium.
 
-Information targeted towards developers *and* other users live in [the Wiki](//ungoogled-software.github.io/ungoogled-chromium-wiki/).
+Information targeted towards developers *and* other users live in [the Wiki](https://ungoogled-software.github.io/ungoogled-chromium-wiki/).
 
 Contents:
 
@@ -24,7 +24,7 @@ For new flags, first add a constant to `third_party/ungoogled/ungoogled_switches
 
 ## Workflow of updating to a new Chromium version
 
-Tested on Debian 10 (buster). Exact instructions should work on any other Linux or macOS system with the proper dependencies.
+Tested on Debian 12 (bookworm). Exact instructions should work on any other Linux or macOS system with the proper dependencies.
 
 To gain a deeper understanding of this updating process, have a read through [docs/design.md](design.md).
 
@@ -33,14 +33,21 @@ To gain a deeper understanding of this updating process, have a read through [do
 * [`quilt`](http://savannah.nongnu.org/projects/quilt)
     * This is available in most (if not all) Linux distributions, and also Homebrew on macOS.
     * This utility facilitates most of the updating process, so it is important to learn how to use this. The manpage for quilt (as of early 2017) lacks an example of a workflow. There are multiple guides online, but [this guide from Debian](https://wiki.debian.org/UsingQuilt) and [the referenced guide on that page](https://raphaelhertzog.com/2012/08/08/how-to-use-quilt-to-manage-patches-in-debian-packages/) are the ones referenced in developing the current workflow.
-* Python 3.6 or newer
+* Python 3.10 or newer
+    * `httplib2` and `six` are also required if you wish to utilize a source clone instead of the source tarball.
 
 ### Downloading the source code
 
+#### Source tarball download (recommended):
 ```sh
 mkdir -p build/download_cache
 ./utils/downloads.py retrieve -i downloads.ini -c build/download_cache
 ./utils/downloads.py unpack -i downloads.ini -c build/download_cache build/src
+```
+
+#### Source clone:
+```sh
+./utils/clone.py -o build/src
 ```
 
 ### Updating lists
@@ -57,10 +64,10 @@ The resulting source tree in `build/src` *will not* have binaries pruned or doma
 
 **IMPORTANT**: Make sure domain substitution has not been applied before updating patches.
 
-1. Run `source devutils/set_quilt_vars.sh`
+1. Run `source devutils/set_quilt_vars.sh` (or `source devutils/set_quilt_vars.fish` if you are using the fish shell)
     * This will setup quilt to modify patches directly in `patches/`
 2. Go into the source tree: `cd build/src`
-3. Use `quilt` to refresh all patches: `while quilt push; do quilt refresh; done`
+3. Use `quilt` to refresh all patches: `quilt push -a --refresh`
 	* If an error occurs, go to the next step. Otherwise, skip to Step 5.
 4. Use `quilt` to fix the broken patch:
     1. Run `quilt push -f`

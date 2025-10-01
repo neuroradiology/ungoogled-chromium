@@ -23,12 +23,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent / 'third_party'))
 import unidiff
 from unidiff.constants import LINE_TYPE_EMPTY, LINE_TYPE_NO_NEWLINE
+
 sys.path.pop(0)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'utils'))
 from domain_substitution import TREE_ENCODINGS
 from _common import ENCODING, get_logger, get_chromium_version, parse_series, add_common_params
 from patches import dry_run_check
+
 sys.path.pop(0)
 
 try:
@@ -61,13 +63,12 @@ try:
     def _get_requests_session():
         session = requests.Session()
         http_adapter = requests.adapters.HTTPAdapter(
-            max_retries=_VerboseRetry(
-                total=10,
-                read=10,
-                connect=10,
-                backoff_factor=8,
-                status_forcelist=urllib3.Retry.RETRY_AFTER_STATUS_CODES,
-                raise_on_status=False))
+            max_retries=_VerboseRetry(total=10,
+                                      read=10,
+                                      connect=10,
+                                      backoff_factor=8,
+                                      status_forcelist=urllib3.Retry.RETRY_AFTER_STATUS_CODES,
+                                      raise_on_status=False))
         session.mount('http://', http_adapter)
         session.mount('https://', http_adapter)
         return session
@@ -102,16 +103,16 @@ class _DepsNodeVisitor(ast.NodeVisitor):
     def visit_Call(self, node): #pylint: disable=invalid-name
         """Override Call syntax handling"""
         if node.func.id not in self._allowed_callables:
-            raise _UnexpectedSyntaxError('Unexpected call of "%s" at line %s, column %s' %
-                                         (node.func.id, node.lineno, node.col_offset))
+            raise _UnexpectedSyntaxError(f'Unexpected call of "{node.func.id}" '
+                                         f'at line {node.lineno}, column {node.col_offset}')
 
     def generic_visit(self, node):
         for ast_type in self._valid_syntax_types:
             if isinstance(node, ast_type):
                 super().generic_visit(node)
                 return
-        raise _UnexpectedSyntaxError('Unexpected {} at line {}, column {}'.format(
-            type(node).__name__, node.lineno, node.col_offset))
+        raise _UnexpectedSyntaxError(f'Unexpected {type(node).__name__} '
+                                     f'at line {node.lineno}, column {node.col_offset}')
 
 
 def _validate_deps(deps_text):
@@ -148,8 +149,8 @@ def _download_googlesource_file(download_session, repo_url, version, relative_pa
     googlesource.com repo as a string.
     """
     if 'googlesource.com' not in repo_url:
-        raise ValueError('Repository URL is not a googlesource.com URL: {}'.format(repo_url))
-    full_url = repo_url + '/+/{}/{}?format=TEXT'.format(version, str(relative_path))
+        raise ValueError(f'Repository URL is not a googlesource.com URL: {repo_url}')
+    full_url = repo_url + f'/+/{version}/{str(relative_path)}?format=TEXT'
     get_logger().debug('Downloading: %s', full_url)
     response = download_session.get(full_url)
     if response.status_code == 404:
@@ -175,13 +176,13 @@ def _get_dep_value_url(deps_globals, dep_value):
         # Probably a Python format string
         url = url.format(**deps_globals['vars'])
     if url.count('@') != 1:
-        raise _PatchValidationError('Invalid number of @ symbols in URL: {}'.format(url))
+        raise _PatchValidationError(f'Invalid number of @ symbols in URL: {url}')
     return url
 
 
 def _process_deps_entries(deps_globals, child_deps_tree, child_path, deps_use_relative_paths):
     """Helper for _get_child_deps_tree"""
-    for dep_path_str, dep_value in deps_globals.get('deps', dict()).items():
+    for dep_path_str, dep_value in deps_globals.get('deps', {}).items():
         url = _get_dep_value_url(deps_globals, dep_value)
         if url is None:
             continue
@@ -203,7 +204,7 @@ def _process_deps_entries(deps_globals, child_deps_tree, child_path, deps_use_re
                     grandchild_deps_tree = recursedeps_item_depsfile
         if grandchild_deps_tree is None:
             # This dep is not recursive; i.e. it is fully loaded
-            grandchild_deps_tree = dict()
+            grandchild_deps_tree = {}
         child_deps_tree[dep_path] = (*url.split('@'), grandchild_deps_tree)
 
 
@@ -214,7 +215,7 @@ def _get_child_deps_tree(download_session, current_deps_tree, child_path, deps_u
         # Load unloaded DEPS
         deps_globals = _parse_deps(
             _download_googlesource_file(download_session, repo_url, version, child_deps_tree))
-        child_deps_tree = dict()
+        child_deps_tree = {}
         current_deps_tree[child_path] = (repo_url, version, child_deps_tree)
         deps_use_relative_paths = deps_globals.get('use_relative_paths', False)
         _process_deps_entries(deps_globals, child_deps_tree, child_path, deps_use_relative_paths)
@@ -224,9 +225,8 @@ def _get_child_deps_tree(download_session, current_deps_tree, child_path, deps_u
 def _get_last_chromium_modification():
     """Returns the last modification date of the chromium-browser-official tar file"""
     with _get_requests_session() as session:
-        response = session.head(
-            'https://storage.googleapis.com/chromium-browser-official/chromium-{}.tar.xz'.format(
-                get_chromium_version()))
+        response = session.head('https://storage.googleapis.com/chromium-browser-official/'
+                                f'chromium-{get_chromium_version()}.tar.xz')
         response.raise_for_status()
         return email.utils.parsedate_to_datetime(response.headers['Last-Modified'])
 
@@ -238,7 +238,7 @@ def _get_gitiles_git_log_date(log_entry):
 
 def _get_gitiles_commit_before_date(repo_url, target_branch, target_datetime):
     """Returns the hexadecimal hash of the closest commit before target_datetime"""
-    json_log_url = '{repo}/+log/{branch}?format=JSON'.format(repo=repo_url, branch=target_branch)
+    json_log_url = f'{repo_url}/+log/{target_branch}?format=JSON'
     with _get_requests_session() as session:
         response = session.get(json_log_url)
         response.raise_for_status()
@@ -413,7 +413,7 @@ def _retrieve_remote_files(file_iter):
     Returns a dict of relative UNIX path strings to a list of lines in the file as strings
     """
 
-    files = dict()
+    files = {}
 
     root_deps_tree = _initialize_deps_tree()
 
@@ -445,8 +445,9 @@ def _retrieve_remote_files(file_iter):
                     last_progress = current_progress
                     logger.info('%d files downloaded', current_progress)
             try:
-                files[file_path] = _download_source_file(
-                    download_session, root_deps_tree, fallback_repo_manager, file_path).split('\n')
+                files[file_path] = _download_source_file(download_session, root_deps_tree,
+                                                         fallback_repo_manager,
+                                                         file_path).split('\n')
             except _NotInRepoError:
                 get_logger().warning('Could not find "%s" remotely. Skipping...', file_path)
     return files
@@ -461,7 +462,7 @@ def _retrieve_local_files(file_iter, source_dir):
 
     Returns a dict of relative UNIX path strings to a list of lines in the file as strings
     """
-    files = dict()
+    files = {}
     for file_path in file_iter:
         try:
             raw_content = (source_dir / file_path).read_bytes()
@@ -475,7 +476,7 @@ def _retrieve_local_files(file_iter, source_dir):
             except UnicodeDecodeError:
                 continue
         if not content:
-            raise UnicodeDecodeError('Unable to decode with any encoding: %s' % file_path)
+            raise UnicodeDecodeError(f'Unable to decode with any encoding: {file_path}')
         files[file_path] = content.split('\n')
     if not files:
         get_logger().error('All files used by patches are missing!')
@@ -490,7 +491,7 @@ def _modify_file_lines(patched_file, file_lines):
     for hunk in patched_file:
         # Validate hunk will match
         if not hunk.is_valid():
-            raise _PatchValidationError('Hunk is not valid: {}'.format(repr(hunk)))
+            raise _PatchValidationError(f'Hunk is not valid: {repr(hunk)}')
         line_cursor = hunk.target_start - 1
         for line in hunk:
             normalized_line = line.value.rstrip('\n')
@@ -499,18 +500,16 @@ def _modify_file_lines(patched_file, file_lines):
                 line_cursor += 1
             elif line.is_removed:
                 if normalized_line != file_lines[line_cursor]:
-                    raise _PatchValidationError(
-                        "Line '{}' does not match removal line '{}' from patch".format(
-                            file_lines[line_cursor], normalized_line))
+                    raise _PatchValidationError(f"Line '{file_lines[line_cursor]}' does not match "
+                                                f"removal line '{normalized_line}' from patch")
                 del file_lines[line_cursor]
             elif line.is_context:
                 if not normalized_line and line_cursor == len(file_lines):
                     # We reached the end of the file
                     break
                 if normalized_line != file_lines[line_cursor]:
-                    raise _PatchValidationError(
-                        "Line '{}' does not match context line '{}' from patch".format(
-                            file_lines[line_cursor], normalized_line))
+                    raise _PatchValidationError(f"Line '{file_lines[line_cursor]}' does not match "
+                                                f"context line '{normalized_line}' from patch")
                 line_cursor += 1
             else:
                 assert line.line_type in (LINE_TYPE_EMPTY, LINE_TYPE_NO_NEWLINE)
@@ -525,7 +524,7 @@ def _apply_file_unidiff(patched_file, files_under_test):
         assert len(patched_file) == 1 # Should be only one hunk
         assert patched_file[0].removed == 0
         assert patched_file[0].target_start == 1
-        files_under_test[patched_file_path] = [x.value for x in patched_file[0]]
+        files_under_test[patched_file_path] = [x.value.rstrip('\n') for x in patched_file[0]]
     elif patched_file.is_removed_file:
         # Remove lines to see if file to be removed matches patch
         _modify_file_lines(patched_file, files_under_test[patched_file_path])
@@ -580,10 +579,9 @@ def _test_patches(series_iter, patch_cache, files_under_test):
                 return True
             except: #pylint: disable=bare-except
                 get_logger().warning('Patch failed validation: %s', patch_path_str)
-                get_logger().debug(
-                    'Specifically, file "%s" caused exception while applying:',
-                    patched_file.path,
-                    exc_info=True)
+                get_logger().debug('Specifically, file "%s" caused exception while applying:',
+                                   patched_file.path,
+                                   exc_info=True)
                 return True
     return False
 
@@ -595,12 +593,13 @@ def _load_all_patches(series_iter, patches_dir):
     - dict of relative UNIX path strings to unidiff.PatchSet
     """
     had_failure = False
-    unidiff_dict = dict()
+    unidiff_dict = {}
     for relative_path in series_iter:
         if relative_path in unidiff_dict:
             continue
-        unidiff_dict[relative_path] = unidiff.PatchSet.from_filename(
-            str(patches_dir / relative_path), encoding=ENCODING)
+        unidiff_dict[relative_path] = unidiff.PatchSet.from_filename(str(patches_dir /
+                                                                         relative_path),
+                                                                     encoding=ENCODING)
         if not (patches_dir / relative_path).read_text(encoding=ENCODING).endswith('\n'):
             had_failure = True
             get_logger().warning('Patch file does not end with newline: %s',
@@ -644,20 +643,18 @@ def _get_files_under_test(args, required_files, parser):
 def main():
     """CLI Entrypoint"""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        '-s',
-        '--series',
-        type=Path,
-        metavar='FILE',
-        default=str(Path('patches', 'series')),
-        help='The series file listing patches to apply. Default: %(default)s')
-    parser.add_argument(
-        '-p',
-        '--patches',
-        type=Path,
-        metavar='DIRECTORY',
-        default='patches',
-        help='The patches directory to read from. Default: %(default)s')
+    parser.add_argument('-s',
+                        '--series',
+                        type=Path,
+                        metavar='FILE',
+                        default=str(Path('patches', 'series')),
+                        help='The series file listing patches to apply. Default: %(default)s')
+    parser.add_argument('-p',
+                        '--patches',
+                        type=Path,
+                        metavar='DIRECTORY',
+                        default='patches',
+                        help='The patches directory to read from. Default: %(default)s')
     add_common_params(parser)
 
     file_source_group = parser.add_mutually_exclusive_group(required=True)
@@ -686,12 +683,12 @@ def main():
         if args.cache_remote.parent.exists():
             args.cache_remote.mkdir()
         else:
-            parser.error('Parent of cache path {} does not exist'.format(args.cache_remote))
+            parser.error(f'Parent of cache path {args.cache_remote} does not exist')
 
     if not args.series.is_file():
-        parser.error('--series path is not a file or not found: {}'.format(args.series))
+        parser.error(f'--series path is not a file or not found: {args.series}')
     if not args.patches.is_dir():
-        parser.error('--patches path is not a directory or not found: {}'.format(args.patches))
+        parser.error(f'--patches path is not a directory or not found: {args.patches}')
 
     series_iterable = tuple(parse_series(args.series))
     had_failure, patch_cache = _load_all_patches(series_iterable, args.patches)

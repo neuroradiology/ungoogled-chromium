@@ -4,66 +4,63 @@ Date: Sun, 8 Jul 2018 18:16:34 +0200
 Subject: Disable fetching of all field trials
 
 ---
- .../src/org/chromium/chrome/browser/ChromeFeatureList.java   | 12 +++---------
- components/variations/service/variations_service.cc          |  4 ++++
- 2 files changed, 7 insertions(+), 9 deletions(-)
+ .../browser/flags/ChromeFeatureList.java      | 19 ++++---------------
+ .../variations/service/variations_service.cc  | 12 +-----------
+ 2 files changed, 5 insertions(+), 26 deletions(-)
 
 --- a/chrome/browser/flags/android/java/src/org/chromium/chrome/browser/flags/ChromeFeatureList.java
 +++ b/chrome/browser/flags/android/java/src/org/chromium/chrome/browser/flags/ChromeFeatureList.java
-@@ -122,9 +122,7 @@ public abstract class ChromeFeatureList
-      *   the specified parameter does not exist.
+@@ -60,7 +60,7 @@ public abstract class ChromeFeatureList
+      * |kFeaturesExposedToJava| in chrome/browser/flags/android/chrome_feature_list.cc
       */
      public static String getFieldTrialParamByFeature(String featureName, String paramName) {
--        if (FeatureList.hasTestFeatures()) return "";
--        assert FeatureList.isInitialized();
--        return ChromeFeatureListJni.get().getFieldTrialParamByFeature(featureName, paramName);
+-        return ChromeFeatureMap.getInstance().getFieldTrialParamByFeature(featureName, paramName);
 +        return "";
      }
  
      /**
-@@ -141,10 +139,7 @@ public abstract class ChromeFeatureList
-      */
-     public static int getFieldTrialParamByFeatureAsInt(
-             String featureName, String paramName, int defaultValue) {
--        if (FeatureList.hasTestFeatures()) return defaultValue;
--        assert FeatureList.isInitialized();
--        return ChromeFeatureListJni.get().getFieldTrialParamByFeatureAsInt(
--                featureName, paramName, defaultValue);
-+        return defaultValue;
-     }
- 
-     /**
-@@ -161,10 +156,7 @@ public abstract class ChromeFeatureList
-      */
-     public static double getFieldTrialParamByFeatureAsDouble(
-             String featureName, String paramName, double defaultValue) {
--        if (FeatureList.hasTestFeatures()) return defaultValue;
--        assert FeatureList.isInitialized();
--        return ChromeFeatureListJni.get().getFieldTrialParamByFeatureAsDouble(
--                featureName, paramName, defaultValue);
-+        return defaultValue;
-     }
- 
-     /**
-@@ -181,10 +173,7 @@ public abstract class ChromeFeatureList
+@@ -72,8 +72,7 @@ public abstract class ChromeFeatureList
       */
      public static boolean getFieldTrialParamByFeatureAsBoolean(
              String featureName, String paramName, boolean defaultValue) {
--        if (FeatureList.hasTestFeatures()) return defaultValue;
--        assert FeatureList.isInitialized();
--        return ChromeFeatureListJni.get().getFieldTrialParamByFeatureAsBoolean(
--                featureName, paramName, defaultValue);
+-        return ChromeFeatureMap.getInstance()
+-                .getFieldTrialParamByFeatureAsBoolean(featureName, paramName, defaultValue);
 +        return defaultValue;
      }
  
-     /** Alphabetical: */
+     /**
+@@ -85,8 +84,7 @@ public abstract class ChromeFeatureList
+      */
+     public static int getFieldTrialParamByFeatureAsInt(
+             String featureName, String paramName, int defaultValue) {
+-        return ChromeFeatureMap.getInstance()
+-                .getFieldTrialParamByFeatureAsInt(featureName, paramName, defaultValue);
++        return defaultValue;
+     }
+ 
+     /**
+@@ -98,8 +96,7 @@ public abstract class ChromeFeatureList
+      */
+     public static double getFieldTrialParamByFeatureAsDouble(
+             String featureName, String paramName, double defaultValue) {
+-        return ChromeFeatureMap.getInstance()
+-                .getFieldTrialParamByFeatureAsDouble(featureName, paramName, defaultValue);
++        return defaultValue;
+     }
+ 
+     /**
 --- a/components/variations/service/variations_service.cc
 +++ b/components/variations/service/variations_service.cc
-@@ -236,17 +236,7 @@ bool GetInstanceManipulations(const net:
+@@ -223,22 +223,7 @@ bool GetInstanceManipulations(const net:
  // Variations seed fetching is only enabled in official Chrome builds, if a URL
  // is specified on the command line, and for testing.
  bool IsFetchingEnabled() {
--#if !BUILDFLAG(GOOGLE_CHROME_BRANDING)
+-#if BUILDFLAG(GOOGLE_CHROME_BRANDING)
+-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+-          switches::kDisableVariationsSeedFetch)) {
+     return false;
+-  }
+-#else
 -  if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
 -          switches::kVariationsServerURL) &&
 -      !g_should_fetch_for_testing) {
@@ -72,9 +69,8 @@ Subject: Disable fetching of all field trials
 -        << switches::kVariationsServerURL << " specified.";
 -    return false;
 -  }
--#endif
+-#endif  // BUILDFLAG(GOOGLE_CHROME_BRANDING)
 -  return true;
-+  return false;
  }
  
- std::unique_ptr<SeedResponse> MaybeImportFirstRunSeed(
+ // Returns the already downloaded first run seed, and clear the seed from the

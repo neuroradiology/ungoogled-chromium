@@ -2,20 +2,20 @@
 
 --- a/chrome/browser/ui/browser_commands.cc
 +++ b/chrome/browser/ui/browser_commands.cc
-@@ -385,11 +385,6 @@ int GetContentRestrictions(const Browser
+@@ -611,11 +611,6 @@ int GetContentRestrictions(const Browser
      CoreTabHelper* core_tab_helper =
          CoreTabHelper::FromWebContents(current_tab);
      content_restrictions = core_tab_helper->content_restrictions();
 -    NavigationEntry* last_committed_entry =
 -        current_tab->GetController().GetLastCommittedEntry();
--    if (!content::IsSavableURL(
--            last_committed_entry ? last_committed_entry->GetURL() : GURL()))
+-    if (!content::IsSavableURL(last_committed_entry->GetURL())) {
 -      content_restrictions |= CONTENT_RESTRICTION_SAVE;
+-    }
    }
    return content_restrictions;
  }
-@@ -1121,8 +1116,7 @@ bool CanSavePage(const Browser* browser)
-           prefs::kAllowFileSelectionDialogs)) {
+@@ -1938,8 +1933,7 @@ bool CanSavePage(const Browser* browser)
+       policy::DownloadRestriction::ALL_FILES) {
      return false;
    }
 -  return !browser->is_type_devtools() &&
@@ -26,7 +26,7 @@
  void Print(Browser* browser) {
 --- a/components/offline_pages/core/offline_page_model.cc
 +++ b/components/offline_pages/core/offline_page_model.cc
-@@ -22,7 +22,7 @@ OfflinePageModel::SavePageParams::~SaveP
+@@ -21,7 +21,7 @@ OfflinePageModel::SavePageParams::~SaveP
  
  // static
  bool OfflinePageModel::CanSaveURL(const GURL& url) {
@@ -37,7 +37,7 @@
  OfflinePageModel::OfflinePageModel() = default;
 --- a/content/common/url_schemes.cc
 +++ b/content/common/url_schemes.cc
-@@ -22,6 +22,9 @@ namespace {
+@@ -24,13 +24,21 @@ namespace {
  bool g_registered_url_schemes = false;
  
  const char* const kDefaultSavableSchemes[] = {
@@ -47,8 +47,7 @@
    url::kHttpScheme,
    url::kHttpsScheme,
    url::kFileScheme,
-@@ -29,7 +32,13 @@ const char* const kDefaultSavableSchemes
-   url::kFtpScheme,
+   url::kFileSystemScheme,
    kChromeDevToolsScheme,
    kChromeUIScheme,
 -  url::kDataScheme
@@ -57,14 +56,13 @@
 +  url::kMailToScheme,
 +  url::kWsScheme,
 +  url::kWssScheme,
-+  kGuestScheme,
 +  kViewSourceScheme
  };
  
  // These lists are lazily initialized below and are leaked on shutdown to
 --- a/content/public/common/url_utils.cc
 +++ b/content/public/common/url_utils.cc
-@@ -28,11 +28,7 @@ bool HasWebUIScheme(const GURL& url) {
+@@ -33,11 +33,7 @@ bool HasWebUIOrigin(const url::Origin& o
  }
  
  bool IsSavableURL(const GURL& url) {

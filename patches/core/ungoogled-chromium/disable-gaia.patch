@@ -1,9 +1,9 @@
 # Disables Gaia code
-# Somehow it is still activated even without being signed-in: https://github.com/Eloston/ungoogled-chromium/issues/104
+# Somehow it is still activated even without being signed-in: https://github.com/ungoogled-software/ungoogled-chromium/issues/104
 
 --- a/google_apis/gaia/gaia_auth_fetcher.cc
 +++ b/google_apis/gaia/gaia_auth_fetcher.cc
-@@ -294,65 +294,6 @@ void GaiaAuthFetcher::CreateAndStartGaia
+@@ -232,61 +232,6 @@ void GaiaAuthFetcher::CreateAndStartGaia
      network::mojom::CredentialsMode credentials_mode,
      const net::NetworkTrafficAnnotationTag& traffic_annotation) {
    DCHECK(!fetch_pending_) << "Tried to fetch two things at once!";
@@ -12,11 +12,12 @@
 -  resource_request->url = gaia_gurl;
 -  original_url_ = gaia_gurl;
 -
--  if (credentials_mode != network::mojom::CredentialsMode::kOmit) {
--    DCHECK_EQ(GaiaUrls::GetInstance()->gaia_url(), gaia_gurl.GetOrigin())
--        << gaia_gurl;
--    url::Origin origin =
--        url::Origin::Create(GaiaUrls::GetInstance()->gaia_url());
+-  if (credentials_mode != network::mojom::CredentialsMode::kOmit &&
+-      credentials_mode !=
+-          network::mojom::CredentialsMode::kOmitBug_775438_Workaround) {
+-    CHECK(gaia::HasGaiaSchemeHostPort(gaia_gurl)) << gaia_gurl;
+-
+-    url::Origin origin = GaiaUrls::GetInstance()->gaia_origin();
 -    resource_request->site_for_cookies =
 -        net::SiteForCookies::FromOrigin(origin);
 -    resource_request->trusted_params =
@@ -28,14 +29,8 @@
 -  if (!body.empty())
 -    resource_request->method = "POST";
 -
--  if (!headers.empty())
--    resource_request->headers.AddHeadersFromString(headers);
+-  resource_request->headers = request_headers;
 -
--  // The Gaia token exchange requests do not require any cookie-based
--  // identification as part of requests.  We suppress sending any cookies to
--  // maintain a separation between the user's browsing and Chrome's internal
--  // services.  Where such mixing is desired (MergeSession or OAuthLogin), it
--  // will be done explicitly.
 -  resource_request->credentials_mode = credentials_mode;
 -
 -  url_loader_ = network::SimpleURLLoader::Create(std::move(resource_request),
@@ -48,7 +43,7 @@
 -  url_loader_->SetAllowHttpErrorResults(true);
 -
 -  VLOG(2) << "Gaia fetcher URL: " << gaia_gurl.spec();
--  VLOG(2) << "Gaia fetcher headers: " << headers;
+-  VLOG(2) << "Gaia fetcher headers: " << request_headers.ToString();
 -  VLOG(2) << "Gaia fetcher body: " << body;
 -
 -  // Fetchers are sometimes cancelled because a network change was detected,
@@ -65,7 +60,8 @@
 -      url_loader_factory_.get(),
 -      base::BindOnce(&GaiaAuthFetcher::OnURLLoadComplete,
 -                     base::Unretained(this)),
--      kMaxMessageSize);
+-      // Limit to 1 MiB.
+-      1024 * 1024);
  }
  
  // static

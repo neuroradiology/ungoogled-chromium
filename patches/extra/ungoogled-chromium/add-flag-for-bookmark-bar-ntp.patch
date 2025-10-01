@@ -1,51 +1,45 @@
---- a/chrome/browser/about_flags.cc
-+++ b/chrome/browser/about_flags.cc
-@@ -300,6 +300,13 @@ const FeatureEntry::Choice kPDFPluginNam
-     {"Microsoft Edge", switches::kPDFPluginName, "edge"},
- };
+--- a/chrome/browser/ui/bookmarks/bookmark_bar_controller.cc
++++ b/chrome/browser/ui/bookmarks/bookmark_bar_controller.cc
+@@ -4,6 +4,7 @@
  
+ #include "chrome/browser/ui/bookmarks/bookmark_bar_controller.h"
+ 
++#include "base/command_line.h"
+ #include "chrome/browser/bookmarks/bookmark_model_factory.h"
+ #include "chrome/browser/browser_features.h"
+ #include "chrome/browser/defaults.h"
+@@ -132,6 +133,10 @@ void BookmarkBarController::OnSplitTabCh
+ }
+ 
+ bool BookmarkBarController::ShouldShowBookmarkBar() const {
++  if (base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII("bookmark-bar-ntp") == "never") {
++    return false;
++  }
++
+   Profile* profile = browser_->GetProfile();
+   if (profile->IsGuestSession()) {
+     return false;
+--- a/chrome/browser/ungoogled_flag_choices.h
++++ b/chrome/browser/ungoogled_flag_choices.h
+@@ -34,4 +34,10 @@ const FeatureEntry::Choice kScrollEventC
+      "scroll-tabs",
+      "never"}
+ };
 +const FeatureEntry::Choice kBookmarkBarNewTab[] = {
 +    {flags_ui::kGenericExperimentChoiceDefault, "", ""},
 +    {"Never",
 +     "bookmark-bar-ntp",
 +     "never"},
 +};
-+
- #if defined(USE_AURA)
- const FeatureEntry::Choice kPullToRefreshChoices[] = {
-     {flags_ui::kGenericExperimentChoiceDefault, "", ""},
-@@ -2555,6 +2562,10 @@ const FeatureEntry kFeatureEntries[] = {
-     {"focus-mode", flag_descriptions::kFocusMode,
-      flag_descriptions::kFocusModeDescription, kOsDesktop,
-      FEATURE_VALUE_TYPE(features::kFocusMode)},
+ #endif  // CHROME_BROWSER_UNGOOGLED_FLAG_CHOICES_H_
+--- a/chrome/browser/ungoogled_flag_entries.h
++++ b/chrome/browser/ungoogled_flag_entries.h
+@@ -36,4 +36,8 @@
+      "Scroll switches tab",
+      "Switch to the left/right tab if the wheel-scroll happens over the tabstrip, or the empty space beside the tabstrip. ungoogled-chromium flag.",
+      kOsDesktop, MULTI_VALUE_TYPE(kScrollEventChangesTab)},
 +    {"bookmark-bar-ntp",
 +     "Bookmark Bar on New-Tab-Page",
-+     "Disable the Bookmark Bar on the New-Tab-Page", kOsDesktop,
-+     MULTI_VALUE_TYPE(kBookmarkBarNewTab)},
- #if defined(OS_CHROMEOS)
-     {"disable-explicit-dma-fences",
-      flag_descriptions::kDisableExplicitDmaFencesName,
---- a/chrome/browser/ui/bookmarks/bookmark_tab_helper.cc
-+++ b/chrome/browser/ui/bookmarks/bookmark_tab_helper.cc
-@@ -4,6 +4,7 @@
- 
- #include "chrome/browser/ui/bookmarks/bookmark_tab_helper.h"
- 
-+#include "base/command_line.h"
- #include "base/observer_list.h"
- #include "build/build_config.h"
- #include "chrome/browser/bookmarks/bookmark_model_factory.h"
-@@ -68,10 +69,12 @@ bool BookmarkTabHelper::ShouldShowBookma
-       !prefs->GetBoolean(bookmarks::prefs::kShowBookmarkBar))
-     return false;
- 
-+  const std::string flag_value =
-+    base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII("bookmark-bar-ntp");
-   // The bookmark bar is only shown on the NTP if the user
-   // has added something to it.
-   return IsNTP(web_contents()) && bookmark_model_ &&
--         bookmark_model_->HasBookmarks();
-+         bookmark_model_->HasBookmarks() && (flag_value != "never");
- }
- 
- void BookmarkTabHelper::AddObserver(BookmarkTabHelperObserver* observer) {
++     "Disable the Bookmark Bar on the New-Tab-Page. ungoogled-chromium flag.",
++     kOsDesktop, MULTI_VALUE_TYPE(kBookmarkBarNewTab)},
+ #endif  // CHROME_BROWSER_UNGOOGLED_FLAG_ENTRIES_H_
